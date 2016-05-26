@@ -8,6 +8,7 @@ Tex and PDF of the paper are in the root directory.
 # Code
 
 The codebase consists of four files:
+
 1. **Theano-functions** contains the main inference methods, loss functions, hyperparam optimizers.
 2. **Theano-test** runs the simulation datasets
 3. **Single-cell-stuff** runs the single-cell rnaseq experiments
