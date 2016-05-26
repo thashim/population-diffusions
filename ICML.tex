@@ -1,0 +1,612 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%% ICML 2016 EXAMPLE LATEX SUBMISSION FILE %%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Use the following line _only_ if you're still using LaTeX 2.09.
+%\documentstyle[icml2016,epsf,natbib]{article}
+% If you rely on Latex2e packages, like most moden people use this:
+\documentclass{article}
+
+% use Times
+\usepackage{times}
+% For figures
+\usepackage{graphicx} % more modern
+%\usepackage{epsfig} % less modern
+\usepackage[tight]{subfigure}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{thmtools}
+\renewcommand{\listtheoremname}{List of theorems and definitions}
+
+\declaretheorem[name=Theorem]{thm}
+\declaretheorem[name=Lemma]{lem}
+\declaretheorem[name=Corollary]{cor}
+\declaretheorem[name=Conjecture]{conj}
+\declaretheorem[name=Definition]{defn}
+\declaretheorem[name=Remark, style=remark]{remark}
+% For citations
+\usepackage{natbib}
+
+\newcommand{\red}[1]{\textcolor{red}{#1}}
+
+% For algorithms
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% As of 2011, we use the hyperref package to produce hyperlinks in the
+% resulting PDF.  If this breaks your system, please commend out the
+% following usepackage line and replace \usepackage{icml2016} with
+% \usepackage[nohyperref]{icml2016} above.
+\usepackage{hyperref}
+
+% Packages hyperref and algorithmic misbehave sometimes.  We can fix
+% this with the following command.
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Employ the following version of the ``usepackage'' statement for
+% submitting the draft version of the paper for review.  This will set
+% the note in the first column to ``Under review.  Do not distribute.''
+%\usepackage{icml2016}
+
+% Employ this version of the ``usepackage'' statement after the paper has
+% been accepted, when creating the final version.  This will set the
+% note in the first column to ``Proceedings of the...''
+\usepackage[accepted]{icml2016}
+
+
+% The \icmltitle you define below is probably too long as a header.
+% Therefore, a short form for the running title is supplied here:
+\icmltitlerunning{Learning Population-Level Diffusions with Generative Recurrent Networks}
+
+\begin{document}
+
+\twocolumn[
+\icmltitle{Learning Population-Level Diffusions with Generative Recurrent Networks}
+
+% It is OKAY to include author information, even for blind
+% submissions: the style file will automatically remove it for you
+% unless you've provided the [accepted] option to the icml2016
+% package.
+\icmlauthor{Tatsunori B. Hashimoto}{thashim@mit.edu}
+\icmlauthor{David K. Gifford}{dkg@mit.edu}
+\icmlauthor{Tommi S. Jaakkola}{tommi@csail.mit.edu}
+
+
+% You may provide any keywords that you
+% find helpful for describing your paper; these are used to populate
+% the "keywords" metadata in the PDF but will not be shown in the document
+\icmlkeywords{boring formatting information, machine learning, ICML}
+
+\vskip 0.3in
+]
+
+\newcommand{\oy}{\overline{y}}
+
+
+\begin{abstract}
+We estimate stochastic processes that govern the dynamics of evolving populations such as cell differentiation. The problem is challenging since longitudinal trajectory measurements of individuals in a population are rarely available due to experimental cost and/or privacy. We show that cross-sectional samples from an evolving population suffice for recovery within a class of processes even if samples are available only at a few distinct time points. We provide a stratified analysis of recoverability conditions, and establish that reversibility is sufficient for recoverability. For estimation, we derive a natural loss and regularization, and parameterize the processes as diffusive recurrent neural networks. We demonstrate the approach in the context of uncovering complex cellular dynamics known as the `epigenetic landscape' from existing biological assays.
+\end{abstract}
+
+
+\section{Motivation}
+
+Understanding the population dynamics of individuals over time is a fundamental problem in a variety of areas, from biology (gene expression of a cell population \citep{waddington1940organisers}), ecology (spatial distribution of animals \citep{tereshko2000reaction}), to census data (life expectancy \citep{manton2008cohort} and racially segregated housing \citep{bejan2007constructal}). In such areas, experimental cost or privacy concerns often prevent measurements of complete trajectories of individuals over time, and instead we observe samples from an evolving population over time (Fig. \ref{fig:problem}).
+
+For example, modeling the active life expectancy and disabilities of an individual over time is an area of substantial interest for healthcare statistics \citep{manton2008cohort}, but the expense and difficulty of collecting longitudinal health data has meant that much of the data is cross-sectional \citep{robine2004looking}. Our technique replaces longitudinal data with cross-sectional data for inferring the underlying dynamics behind continuous time-series.
+
+\begin{figure}
+\vspace{-7pt}
+\centering
+\includegraphics[scale=0.4]{fig/example_draws.png}
+\vspace{-7pt}
+\caption{In population-level inference we observe samples (colored points) drawn from the process at different times. The goal is to infer the dynamics (blue vectors). In this toy dataset each point can be thought of as a single cell and the x and y axes as gene expression levels of two genes.}
+\label{fig:problem}
+\vspace{-8pt}
+\end{figure}
+
+
+The framework we develop will be applicable to the general cross-sectional population inference problem, but in order to ground our discussion we will focus on a specific application in computational biology, where we seek to understand the process by which embryonic stem cells differentiate into mature cells. An individual cell's tendency to differentiate into a mature cell is thought to follow a `epigenetic landscape' much like a ball rolling down a hill. The local minima of this landscape represents cell states and the slope represents the rate of differentiation \citep{waddington1940organisers}. While more recent work has established the validity of modeling differentiation as a diffusion process \citep{hanna2009direct,morris2014mathematical}, direct inference of the epigenetic landscape has been limited to the dynamics of single genes \citep{sisan2012predicting} due to the difficulty of longitudinally tracking single cells.
+
+Our work establishes that no longitudinal tracking is necessary and population data alone can be used to recover the latent dynamics driving diffusions. This result allows cheap, high-throughput assays such as single cell RNA-seq to be used to infer the latent dynamics of tens to hundreds of genes.
+
+Analyzing the inference problem for population-level diffusions, we utilize the connection between partial differential equations, diffusion processes, and recurrent neural networks (RNN) to derive a principled loss function and estimation procedure.
+
+Our contributions are the following
+\begin{itemize}
+\item First, we rigorously study whether the dynamics of a diffusion can be recovered from cross-sectional observations, and establish the first identifiability results.
+\item Second, we show that a particular regularized recurrent neural network (RNN) with Wasserstein loss is a natural model for this problem and use this to construct a fast scalable initializer that exploits the connection between diffusions and RNNs.
+\item Finally, our method is verified to recover known dynamics from simulated data in the high-dimensional regime better than both parametric and local diffusion models, as well as predict the differentiation time-course on tens of genes for real RNA-seq data.
+\end{itemize}
+
+\section{Prior work}
+
+Population level inference of dynamics consists of observing samples drawn from a diffusion stopped at various times and inferring the forces driving the changes in the population (Fig. \ref{fig:problem}) which contrasts with inferring dynamics with trajectory data which tracks individuals longitudinally. Our work is distinct from existing approaches in that it considers sampled, multivariate, and non-stationary $(t < \infty)$ observations.
+
+\subsection{Population level inference}
+
+Inferring dynamics from population appears in three areas: In home-range estimation, one estimates the support of a two-dimensional continuous time series from the stationary distribution \citep{fleming2015rigorous}. Our work is distinguished by our focus on the high-dimensional $(d>2)$ and non-stationary settings. The stationary case is discussed in section \ref{sec:stationary}.
+
+Inverse problems in parabolic differential equations identify continuous, low-dimensional dynamics given noisy but complete measurements (rather than samples) along a known boundary \citep{tarantola2005inverse}. One-dimensional methods using plug-in kernel density estimates exist \citep{lund2014nonparametric} but do not generalize to greater than one dimension.
+
+Finally, estimation of discrete Markov chains using `macro' data is the discrete time and space equivalent of our problem. This is a classic problem in econometrics, and recovery properties \citep{van1983estimation}, estimation algorithms \citep{kalbfleisch1984least}, and the effect of noise \citep{bernstein2016consistently} are all well-known. The discrete solutions above observe multiple populations stopped at the same time points, which allows for the more general solutions. Our problem cannot be solved trivially via discretization: discretizing the space scales exponentially with dimension, and discretizing time results in a solution which is conceptually equivalent to the time-derivative model in section \ref{sec:manytime} and does not capture the underlying geometry of the problem.
+
+\subsection{Diffusive RNNs}
+
+Diffusive networks \citep{mineiro1998learning} connect diffusion processes and RNNs much like our work. Our work focuses on the specific problem of population-level diffusions (rather than full trajectory observations) and derives a new pre-training scheme based on contrastive divergence. Our work shows that the connection between recurrent network and diffusions such as those in \citep{mineiro1998learning} can be used to develop powerful inference techniques for general diffusions.
+
+\subsection{Computational biology}
+Pseudo-time analysis \citep{trapnell2014pseudo} models the differentiation of cells as measured by single-cell RNA-seq by assigning each cell to a differentiation path via bifurcations and a `pseudo-time' indicating its level of differentiation. Such analysis is driven by the desire to identify the cell-states and relevant marker genes during differentiation. Recent sophisticated methods can recover such bifurcations quite effectively \citep{setty2016wishbone, marco2014bifurcation}.
+
+Our work complements such analyses by showing that it is possible to recover quantitative parameters such as the underlying epigenetic landscape from few population measurements. Our results on identifiability of the epigenetic landscape will become more valuable as the number of captured cells in a single-cell RNA-seq experiment grows from hundreds \citep{klein2015droplet} to tens of thousands.
+
+Systems biology models of the epigenetic landscape have focused on constructing landscapes which recapitulate the qualitative properties of differentiation systems \citep{qiu2012understanding,bhattacharya2011deterministic}. Our work distinguished by a focus on data-driven identification of the epigenetic landscape. Existing data-driven models of the epigenetic landscape are for a single gene and either rely on longitudinal tracking \citep{sisan2012predicting} or require assuming that a particular cell population is stationary \citep{luo2013cell}.
+
+\section{Population-level behavior of diffusions}
+We will begin with a short overview of our notation, observation model, and mathematical background.
+
+A $d$-dimensional diffusion process $X(t)$ represents the state (such as gene expression) of an individual at time $t$. Formally we define $X(t)$ as a stochastic differential equation (SDE):
+\begin{equation}\label{eq:sde}
+dX(t) = \mu(X(t))dt + \sqrt{2\sigma^2} dW(t).
+\end{equation}
+Where $W(t)$ is the unit Brownian motion. This can be thought of as the continuous-time limit of the discrete stochastic process $Y(t)$ as $\Delta t\to 0$:
+\begin{equation}\label{eq:discr}
+Y(t+\Delta t) = Y(t)+\mu(Y(t))\Delta t + \sqrt{2\sigma^2\Delta t} Z(t)
+\end{equation}
+where $Z(t)$ are i.i.d standard Gaussians. The function $\mu(x)$ is called the \textbf{drift} and represents the force acting on an individual at a particular state $x$. In Fig. \ref{fig:problem}, the blue curves are $\mu(x)$ which result in $X(t)$ converging to one of four terminal states. The probability of observing $X(t)$ at any point $x$ at time $t$ is called the \textbf{marginal distribution} and corresponds to the colored points in Fig. \ref{fig:problem}.
+
+We define the population-level inference task as finding the drift function $\mu$ given distributions over the marginals.
+\begin{defn}[Population-level inference]
+
+Define the marginal distribution $\rho(t,x) = P(X(t)=x)$.
+
+A population-level inference problem on $X(t)$ given diffusion constant $\sigma$, time points $\mathcal{T}=\{0, t_1 \hdots t_n\}$, and samples $\mathcal{M}=\{m_0 \hdots m_n\}$ consists of identifying $\mu(x)$ from samples
+$\{x(t)_i \sim \rho(t,x) \mid i \in \{1\hdots m_t\}, t\in \mathcal{T}\}$.
+
+\end{defn}
+
+Fully general population level inference is impossible. Consider a process with the unit disk in $\mathbb{R}^2$ as $\rho(0,x)$, and the drift $\mu$ is a clockwise rotation. From a population standpoint, this would look identical to no drift at all.
+
+This raises the question: what restrictions on $\mu(x)$ are natural, and allow for the recovery of the underlying drift? Our paper considers \textbf{gradient flows} which are stochastic processes with drift defined as $\mu(x) = -\nabla \Psi(x)$ \footnote{For diffusion processes, the gradient flow condition is equivalent to reversibility \citep[Section 4.6]{pavliotis2014stochastic}.}. The \textbf{potential function} $\Psi(x)$ corresponds to the `epigenetic landscape' of our stochastic process. The force $\mu(x) = -\nabla \Psi(x)$ drives the process $X(t)$ toward regions of low $\Psi(x)$ much like a noisy gradient descent.
+
+A remarkable result on these gradient flows is that the marginal distribution $\rho(t,x)$ evolves by performing steepest descent on the relative entropy $D(\rho(t,x) || \exp(-\Psi(x)/\sigma^2))$ with respect to the 2-Wasserstein metric $W_2$. Formally, this is described by the Jordan-Kinderlehrer-Otto theorem \citep{jordan1998variational}:
+
+\begin{thm}[The JKO theorem]\label{thm:jko}
+Given a diffusion process defined by equation \ref{eq:sde} with $\mu(x) = -\nabla \Psi(x)$, then the marginal distribution $\rho(t,x)=P(X(t)=x)$ is approximated by the solution to the following recurrence equation for $\rho^{(t)}$ with $\rho^{(0)}=\rho(0,x)$.
+\begin{multline}
+\rho^{(t+\Delta t)} = \underset{\rho^{(t+\Delta t)}}{\text{argmin}} \quad W_2(\rho^{(t+\Delta t)}, \rho^{(t)})^2 \\
++ \frac{\Delta t}{\sigma^2}D\left(\rho^{(t+\Delta t)}||\exp\left(\frac{-\Psi(x)}{\sigma^2}\right)\right).
+\end{multline}
+in the sense that $\lim_{\Delta t \to 0} \rho^{(t)}(x) \to \rho(t,x)$
+\end{thm}
+
+This theorem is the conceptual core of our approach: the Wasserstein metric, which represents the probability of transforming one distribution to another via purely Brownian motion, will be our empirical loss \citep{adams2013large}; and the relative entropy $D(\rho||\exp(-\Psi(x)/\sigma^2))$ describing the tendency of the system to maximize entropy, will be our regularizer.
+
+
+
+
+\section{Recoverability of the potential $\Psi$}\label{sec:ident}
+
+Before we discuss our model, we must first establish that it is possible to asymptotically identify the true potential $\Psi(x)$ from sampled data. Otherwise the estimated $\Psi(x)$ will have limited value as a scientific and predictive tool.
+
+We consider recoverability in three regimes of increasing difficulty. First, in section \ref{sec:stationary}, we consider the stationary case of observing $\rho(\infty,x)$ which results in a closed-form estimator for $\Psi$, but requires unrealistic assumptions on our model. Next, in section \ref{sec:manytime} we consider a large number of observations across time, and show that exact identifiability is possible. However, this case requires a prohibitively large number of experiments to guarantee identifiability. Finally, in section \ref{sec:finiteobs} we will consider the most realistic case of observing a few observations across time, and discuss the conditions under which recovery of $\Psi$ is possible.
+
+\subsection{Stationary observations}\label{sec:stationary}
+
+In the stationary observation model, we are given samples from a fully mixed process $\rho(\infty,x)$. In this case, one time observation is sufficient to exactly identify the potential.
+This follows from representing the stochastic process in Eq. \ref{eq:sde} as a parabolic partial differential equation (PDE).
+\begin{thm}[Fokker-Planck \citep{jordan1998variational}]
+Given the SDE in equation \ref{eq:sde}, with drift $\mu(x) = -\nabla\Psi(x)$, the marginal distribution $\rho(t,x)$ fulfills:
+\begin{equation}\label{eq:fp}
+\frac{\partial \rho}{\partial t} = \text{div}(\rho(t,x)\nabla \Psi(x)) + \sigma^2\nabla^2 \rho(t,x)
+\end{equation}
+with given initial condition $\rho(0,x)$.
+\end{thm}
+
+Now in the stationary case, we can note that the ansatz $\rho(\infty,x) = \exp(-\Psi(x)/\sigma^2)$ gives:
+\[ 0 = \text{div}(\nabla \Psi(x) \rho(\infty,x))/\sigma^2 + \nabla^2 \rho(\infty,x)\]
+implying that $\exp(-\Psi(x)/\sigma^2)$ is the stationary distribution, and we can estimate the underlying drift as $\nabla\Psi(x) = -\nabla \log(\rho(\infty,x))\sigma^2$. The quantity $-\nabla \log(\rho(\infty,x))\sigma^2$ can be estimated from samples via one step of the mean-shift algorithm \citep[Eq. 41]{fukunaga1975estimation}.
+
+Although estimation of $\nabla \Psi(x)$ from the stationary distribution is tractable, it has two substantial drawbacks. First, it is difficult to collect samples from the exact stationary distribution $\rho(\infty,x)$; we often collect marginal distributions that are close, but not exactly equal to, the stationary distribution. Second, our estimator $-\nabla \log(\rho(\infty,x))$ is only accurate over regions of high density in $\rho(\infty,x)$ which may be distinct from our region of interest. For differentiation systems, this means we will only know the behavior of $\nabla \Psi(x)$ near the fully differentiated state, rather than over the entire differentiation timecourse.
+
+To make this drawback clear, consider the case where $\sigma^2$ is small. The stationary observations from $\exp(-\Psi(x)/\sigma^2)$ will concentrate around the global minimums of $\Psi(x)$ and will therefore only tell us about the local behavior of $\Psi(x)$ around the minima. On the other hand, observing a non-stationary sequence of distributions $\rho(0,x), \rho(t_1,x) \hdots$ does not have this drawback, as $\rho(0,x)$ may be initialized far from the minima of $\Psi(x)$ allowing us to observe how the distribution $\rho(0,x)$ converges to the minima of $\Psi(x)$.
+
+\subsection{Many time observations}\label{sec:manytime}
+
+We show that sampling multiple nonstationary timepoints is identifiable, and avoids the drawbacks of a single stationary observation. Consider a observation scheme where we obtain $\rho(0,x), \rho(t_1,x) \hdots$ up to some time $t_n=T$ such that we can estimate one of two quantities reliably:
+\begin{itemize}
+\item \textbf{Short-time:} $\frac{\partial \rho}{\partial t}\bigg|_T \approx \sum_{i=1}^n\frac{\rho(t_{i},x)-\rho(t_0,x)}{t_{i}-t_{0}}$
+\item \textbf{Time-integral:} $\int_0^T \rho(t,x)dt \approx \sum_{i=1}^n \rho(t_i,x)/n$
+\end{itemize}
+
+In both of these cases, we can show that the underlying potential $\Psi(x)$ is identifiable via direct inversion of the Fokker-Planck operator. The time-integral model is particularly interesting, as it can be implemented in practice for single cell RNA-seq by collecting cells at uniform times across development \citep{klein2015droplet}.
+
+\begin{thm}[Uniqueness of Fokker-Planck like operators]\label{thm:uniqueop}
+Let $\Psi(x)$ be a continuously differentiable solution to the following elliptic PDE:
+\begin{equation}\label{eq:parab}
+f(x) = \nabla^2 \Psi(x) \tau(x) + \nabla \Psi(x) \nabla \tau(x) + \sigma^2 \nabla^2 \tau(x)
+\end{equation}
+subject to the constraint $\int \exp(-\Psi(x)/\sigma^2) dx = 1$.
+
+Equation \ref{eq:parab} is fulfilled in the short-time case with, $f=\frac{\partial \rho}{\partial t}$, $\tau = \rho$ and in the time-integral case, $f(x)=\rho(t_0,x)-\rho(t_n,x)$ and $\tau(x) = \int_0^T \rho(t,x)dt$.
+
+Additionally, the Fokker-Planck equation associated with $\rho(t,x)$ is constrained to domain $\Omega$ via a reflecting boundary. Formally, there exists a compact domain $\Omega$ with $\langle \nabla \Psi(x) \tau(x) + \sigma^2\nabla \tau(x) , n_x \rangle = 0$ for any boundary normal vector $n_x$ with $x \in \partial \Omega$. \footnote{This boundary condition is only necessary to keep the proof simple. We prove a relaxation in section \ref{sec:uniqueop2}.}
+
+ Then $\Psi(x)$ is unique up to sets of measure zero in $\tau(x)$.
+\end{thm}
+\begin{proof}
+Consider any $\Psi_1(x)$ and $\Psi_2(x)$, then by linearity of the PDE, $\Psi'(x)=\Psi_1(x) - \Psi_2(x)$ must be a solution to the homogeneous elliptic PDE
+\[0 = \text{div}(\nabla \Psi'(x) \tau(x))=\nabla^2 \Psi'(x) \tau(x) + \nabla \Psi'(x) \nabla \tau(x).\]
+
+Consider the set $R_\epsilon=\{x:x\in\Omega, \Psi'(x)\leq \min_y \Psi'(y) + \epsilon\}$. By smoothness of $\Psi'$ and compactness of $\Omega$, for all $\epsilon > \epsilon_{min} = \min_y \Psi'(y)$ the region $R_\epsilon$ is compact.
+
+By construction, $\partial R_{\epsilon}$ can be decomposed into two parts: the boundary of the level set $\Psi'(x) = \min_y \Psi'(y)+\epsilon$ which we define as $\partial R_{\epsilon}^\circ$ and a possibly empty subset of the domain boundary $\partial \Omega$ defined as $\partial \Omega^\circ$.
+
+By the divergence theorem we can integrate the elliptic PDE over any $R_{\epsilon}$:
+\begin{align*}
+\int_{x\in R_\epsilon} \text{div}(\nabla \Psi'(x)\tau(x))dx = \int_{x\in \partial \Omega\circ} \langle \nabla \Psi'(x) \tau(x) , n_x \rangle dx \\
++ \int_{x\in \partial R_\epsilon^\circ} |\nabla\Psi'(x)|_2\tau(x) dx = 0
+\end{align*}
+By the boundary condition, for any $n_x$ with $x\in\partial \Omega$, $\langle \nabla \Psi_1(x) \tau + \sigma^2\nabla \tau , n_x \rangle = 0$ which implies that $\langle \nabla \Psi'(x) \tau , n_x \rangle = 0$ and therefore $\int_{x\in \partial R_\epsilon^\circ} |\nabla\Psi'(x)|_2\tau(x) dx = 0$.
+
+By construction, $\tau(x)>0$ over $\Omega$ and therefore $|\nabla \Psi'(x)| = 0$ for all $x \in \partial R_{\epsilon}^\circ$. The union of sets $\partial R_{\epsilon}^\circ$ contains all of $\Omega$ by construction, and therefore for $x\in \Omega$, $|\nabla \Psi'(x)| = |\nabla \Psi_1(x) - \nabla \Psi_2(x)| = 0$.
+Combined with the normalization constraint, $\int \exp(-\Psi(x)/\sigma^2) dx = 1$, this implies $\Psi_1(x) = \Psi_2(x)$.
+\end{proof}
+
+The proof of Thm. \ref{thm:uniqueop} illustrates that the recoverability depends critically on $\tau(x)>0$. Thus in the time-integral case, the regions which can be clearly recovered are those over which  $\tau(x)=\int_0^T\rho(t,x)dt$ has large mass. Compared to the stationary situation, this is substantially better; we will get accurate estimates of $\Psi$ over the entire timecourse of $\rho(0,x) \hdots \rho(T,x)$.
+
+Finally, we ask whether $\Psi$ is recoverable when the time observations $\rho(0,x), \rho(t_1,x) \hdots $ are sufficiently few and separated in time such that both the short-time and time-integral assumptions are not valid.
+\subsection{Few time observations}\label{sec:finiteobs}
+
+In more realistic settings, we may get many samples, but very few time observations such that the time-integral uniqueness theorem does not hold. We analyze this case and establish two results: first, we establish exact identifiability in one dimension (Thm. \ref{thm:1d}) and give evidence for the conjecture in multiple dimensions (Cor. \ref{cor:hypo}). Next, we establish that a sufficiently mixed final time observation is sufficient for uniqueness (Thm. \ref{thm:entropic}) and derive a model constraint based on this theorem (Eq. \ref{eq:KL}).
+
+In one dimension, three time points are sufficient to recover the underlying potential function\footnote{The requirement of three marginal distributions is due to the more general nature of \citep[Problem 1]{gol2010uniqueness}. We believe only two marginals are necessary.}:
+\begin{thm}[1-D identifiability]\label{thm:1d}
+Assume there exists some $c$ such that $\sigma>c>0$; boundaries $a,b$ such that $\rho(t,a)=0$ and $\rho(t,b)=0$ for all $t$; and the marginal densities are Holder continuous with $\rho(t,x) \in H^{2+\lambda}$.
+
+Given $\rho(0,x), \rho(t_1,x), \rho(t_2,x)$ with $0\neq t_1\neq t_2 < \infty$, there exists a unique continuous potential $\Psi(x) \in C^1$ fulfilling the Fokker-Planck equation.
+\end{thm}
+\begin{proof}
+This is a special case of problem 1 considered in \citep{gol2010uniqueness} once we set $c(x,t,u)=1$, $f(x,t)=0$, $d(x,t,u)=0$, $b_1(x,t,u)=0$, $p(x)=d_1(x,t,u)=0$. The result follows from \citep[Theorem 1]{gol2010uniqueness}.
+\end{proof}
+
+In the multivariate case, the adjoint technique used in \citep{gol2010uniqueness} no longer applies, and the equivalent result is an open problem conjectured to be true \citep{de2012note}. We believe this conjecture is true and show that for any finite number of candidate $\Psi$ which agrees at two marginals $\rho(0,x)$ and $\rho(t,x)$ we can identify the true potential using a third measurement.
+
+\begin{cor}[Finite identifiability of $\Psi$]\label{cor:hypo}
+Let $\Psi_0$ and $\Psi_1$ be candidate potentials such that given $\rho_0(0,x)=\rho_1(0,x)$ and
+\[\frac{\partial \rho_i}{\partial t} = \text{div}(\nabla \Psi_i(x) \rho_i(t,x)) + \sigma^2\nabla^2 \rho_i(t,x)\]
+such that $\rho_0(t,x) = \rho_1(t,x)$. Define $\rho_i(t_3,x)$ where $t_3 \sim T$ is a draw from $T$ defined as a random variable absolutely continuous with respect to the Lebesgue measure, then $\rho_1(t_3,x)=\rho_0(t_3,x)$ with probability one if and only if $\forall x$, $\Psi_1(x)=\Psi_0(x)$.
+\end{cor}
+\begin{proof}
+See Supp. section \ref{sec:hypo}. The statement reduces to short-time uniqueness studied in section \ref{sec:manytime}.
+\end{proof}
+
+In the case that the final marginal distribution $\rho(t_n,x)$ is sufficiently mixed, stationary identifiability allows us to derive an identifiability result regardless of the conjecture.
+
+\begin{thm}[Relative fisher information constraint]\label{thm:entropic}
+Let $\rho(0,x)$ and $\rho(t_n,x)$ be marginal distributions associated with the potential $\Psi$. Then, if the final time $\rho(t_n,x)$ is sufficiently mixed:
+\[-\frac{\partial }{\partial t}D(\rho(t_n,x)||\exp(-\Psi(x)/\sigma^2))\leq \epsilon,\]
+all $\hat{\Psi}$ which are consistent with $\rho(0,x)$ and $\rho(t_n,x)$ with similar mixing constraints: $-\frac{\partial }{\partial t}D(\rho(t_n,x)||\exp(-\hat{\Psi}(x)/\sigma^2))\leq \epsilon$ must imply similar drifts:
+\[\int |\nabla \Psi(x)-\nabla \hat{\Psi}(x)|^2\rho(t_n,x) dx \leq 4\epsilon.\]
+\end{thm}
+\begin{proof}
+This follows from a relative fisher information identity in \citep[Lemma 4.1]{markowich2000trend}. We reproduce an abbreviated proof for completeness. Since $\rho$ is the solution to the Fokker-Planck equation evolving according to $\Psi$, we can write $h_t(x) = \rho(t_n,x)/\exp(-\Psi(x)/\sigma^2)$, leading to
+\begin{align*}
+&-\frac{\partial D(\rho(t_n,x)||\exp(-\Psi(x)/\sigma^2))}{\partial t}  \\
+%&= -\frac{\partial}{\partial t} \int \exp(-\Psi(x)/\sigma^2) h_t(x) \log h_t(x)  dx\\
+&= \int \frac{\exp(-\Psi(x)/\sigma^2)}{h_t(x)} |\nabla h_t(x)|^2 dx \\
+&= \int |\nabla \Psi(x)-\nabla \rho(t_n,x)|^2\rho(t_n,x) dx \leq \epsilon.
+\end{align*}
+Where the second equality follows via integration by parts on the Fokker-Planck equation.
+Applying the Minkowski inequality to the last line gives the desired identity.
+\end{proof}
+
+Theorem \ref{thm:entropic} implies that if we are willing to assume that $\rho(t_n,x)$ is close to mixed, and we can ensure that our estimated $\hat{\Psi}$ has a tight bound on $-\frac{\partial }{\partial t}D(\rho(t_n,x)||\exp(-\hat{\Psi}(x)/\sigma^2))$, then we can recover a good approximation to the true $\Psi$. In practice this assumption and constraint is straightforward to fulfill: experimental designs often track cell populations until they do not show substantial changes ($\rho(t_n,x)$ is close to mixed) and we can fit $\hat{\Psi}$ under the constraint that it is smooth with bounded gradient and
+\begin{equation}\label{eq:KL}
+D(\rho(t_n,x)||\exp(-\hat{\Psi}(x)/\sigma^2)) \leq \eta.
+\end{equation}
+Which implicitly bounds the mixedness in Thm. \ref{thm:entropic} by the JKO theorem (Thm. \ref{thm:jko}). Thus we have established a constraint (Eq. \ref{eq:KL}) and experimental condition (Thm. \ref{thm:entropic}) under which we can reliably recover the underlying dynamics even with few timepoints.
+
+%Without this constraint, inference from finite samples becomes inherently ill-posed. For example, if we have a time-course over which we only observe points in the unit cube, we can either hypothesize that: 1. The potential $\Psi(x)$ is large outside the unit cube, constraining all observed trajectories to lie within the unit cube. Or 2. $\Psi(x)$ forms a wall around the unit cube which maintains the observed trajectories within the cube, but there are also nontrivial energy minima outside the walls. If we assume the mixedness condition of theorem \ref{thm:entropic}, this immediately rules out such degeneracies, leaving only the first case as a possibility.
+
+%This constraint is necessary when performing inference from finite samples. Consider a set of observations $\rho(t,x)$ where $\rho(0,x)$ is the unit normal and we observe that the samples approach a normal distribution with standard deviation of two. We would like such a set of observations to define the underlying potential $\Psi(x)$ as a quadratic function, but this is impossible: we may have two potential wells, one at zero and another far away (say at 10000) such that the mixing rate is nearly zero, and thus we never observe samples in the second potential well.
+
+\section{Inference}
+We will show that a Wasserstein loss with an entropic regularization on a noisy RNN is natural for this model.
+
+\subsection{Loss function and regularization}
+
+To motivate the Wasserstein loss, consider the case where we observe full trajectories of a single stochastic process $X(t)$. Then one natural loss function is to consider the expected squared loss between the observed value $x_t$ and the predicted distribution of $X(t)$ under the model.
+
+The Wasserstein distance is exactly the analogous quantity to the $L_2$ distance when we switch from fully observed trajectories to populations of indistinguishable particles in a diffusion \citep[Section 3]{adams2013large}. We outline the intuition for this argument here: the squared loss for a diffusion arises from the fact that given $m_t$ trajectories from a diffusion with $x(t)=\{x(t)_0,x(t)_1\hdots x(t)_{m_t}\}$, then $\lim_{\hat{t}\to 0}-\hat{t}\log(P(X(\hat{t}+t)=x(\hat{t}+t)|X(t)=x(t))) = \frac{1}{4}\sum_{i=1}^{m_t} |x(t+\hat{t})_i-x(t)_i|_2^2$. The squared loss thus arises as the log-probability that Brownian motion transforms the predicted value $X(t)$ into the true value $x(t)$ in an infinitesimal time $\hat{t}$.
+
+ If we make the particles indistinguishable via a random permutation $\sigma \in S_{m_0}$, the above limit becomes:
+\begin{multline}
+\lim_{\hat{t}\to 0}-\hat{t}\log(P(X(t+\hat{t})=x(t+\hat{t})|X(t)=x(t))) = \\
+\frac{1}{4}\inf_{\sigma \in S_{m_n}}\sum_{i=1}^{m_n} |x(t+\hat{t})_i-x(t)_{\sigma(i)}|_2^2.
+\end{multline}
+This is a special case of the Wasserstein metric, implying that for population inference, the natural analog to empirical squared loss minimization is empirical Wasserstein loss minimization. Thus at time $t_i$ we penalize $W_2(\hat{\rho}(t_i,x),\rho_{\Psi}(t_i,x))^2$ which is the Wasserstein distance between the empirical distribution $\hat{\rho}$ and the marginal distribution predicted by $\Psi$, $\rho_{\Psi}$. This loss is approximated via sampling and the Sinkhorn distance \citep{cuturi2013sinkhorn}.
+
+We regularize this loss function with an entropic regularizer. Thm. \ref{thm:entropic} states that if $\frac{\partial}{\partial t} D(\rho(t_n,x)||\exp(-\Psi(x)/\sigma^2))$ is small then we can recover any mixed potential. We fulfill this mixing constraint by controlling the relative entropy in Eq. \ref{eq:KL}, which we write as
+\[E_{X\sim\rho(t_n,x)}[\log(\rho(t_n,X))]+E_{X\sim\rho(t_i,x)}[\Psi(X)/\sigma^2] \leq \eta,\]
+where $\rho(t_n,x)$ is the unknown, true marginal distribution at time $t_n$. Removing constant terms not involving $\Psi(x)$ and replacing $\rho(t_n,x)$ with samples $x_j \sim \rho(t_n,x)$ gives us the regularizer: $\sum_{j=1}^{m_n} \Psi(x_j)/\sigma^2$. Converting this constraint into a regularization term with parameter $\tau$ and assuming that $\Psi$ is contained in a family of models $K$, our objective function is:
+\begin{equation}\label{eq:objective}
+\min_{\Psi \in K} \left[\sum_{i=1}^n W_2(\hat{\rho}(t_i,x),\rho_{\Psi}(t_i,x))^2\right] + \tau \sum_{j=1}^{m_n} \frac{\Psi(x_j)}{\sigma^2}.
+\end{equation}
+
+The similarity of Eq. \ref{eq:objective} to the JKO theorem (Thm. \ref{thm:jko}) is not coincidental. One interpretation of the JKO theorem is that $W_2$ is the natural metric over marginal distributions and likelihood is the natural measure of model fit over $\Psi$.
+
+
+\begin{figure*}[ht!]
+\centering
+\subfigure[Stationary pre-training improves both runtime and goodness of fit.]{\includegraphics[scale=0.35]{fig/runtimes.png}\label{fig:stationary}}
+%\subfigure[Loss of likelihood (y-axis) of pre-training only and no pre-training models compared to the full optimization model]{\includegraphics[scale=0.4]{fig/lhimprovement.png}\label{fig:goodness}}
+\quad
+\subfigure[RNN predictions are similar to the true dynamics on 50D data.]{\includegraphics[scale=0.35]{fig/toy_pred_2.png}\label{fig:goodness}}
+\quad
+\subfigure[Example prediction of baselines on same data]{\includegraphics[scale=0.35]{fig/toy_pred.png}\label{fig:goodness_2}}
+\vspace{-8pt}
+\caption{The pre-trained RNN captures the multimodal dynamics of the Styblinski flow even in 50-dimensions.}
+\vspace{-10pt}
+\end{figure*}
+
+
+\subsection{Diffusions as a recurrent network}
+
+Thus far we have abstractly considered all stochastic processes of the form: $dX(t) = -\nabla \Psi(x) dt + \sqrt{2\sigma^{2}} dW(t)$.
+
+A natural way to parametrize $\Psi$ is to consider linearly separable potential functions, which we may write as:
+\[\Psi(x) = \sum_k h(w_kx+b_k)g_k,\]
+such that $h$ is some strictly increasing function. This represents $\Psi$ as the sum of energy barriers $h$ in the direction of vectors $w_k$, allowing us to fit our model via gradient descent, while maintaining interpretability of the parameters.
+
+Setting $h(x)=\log(1+\exp(x))$ parametrizes $\Psi(x)$ as the sum of nearly linear ramps and we obtain that the drift $\nabla \Psi$ is a one layer of a sigmoid neural network, where the linear terms are tied together much like an autoencoder:
+\[\sum_k \nabla h(w_kx+b_k)g_k = \sum_k h'(w_kx+b_k)g_kw_k^T\]
+
+Applying this to the first order time discretization in Eq. \ref{eq:discr}, a draw $\oy^t_i$ of our stochastic process can be simulated as:
+\begin{equation}\label{eq:simul}
+\oy^{t+dt}_i = \oy^t_i + \Delta t \sum_k h'(w_k\oy^t_i+b_k)w_kg_k + \sqrt{\Delta t\sigma^2 }z_{it}
+\end{equation}
+This can be interpreted as a type of RNN with noise based regularization. The network is generative and as $\Delta t\to 0$ the draws from this recurrent net converge to trajectories of the diffusion process $X$ above. \footnote{In practice, we set $\Delta t$ to be 0.1 which gives at least a ten time-steps between observations in our experiments and find anywhere from five to hundred time-steps between observations to be sufficient.}
+
+
+\begin{figure*}
+\centering
+\subfigure[Quadratic high dimensional flow]{\includegraphics[scale=0.4]{fig/wass_error_quadratic.png}\label{fig:quaddim}}
+\subfigure[Styblinski flow in high dimensions]{\includegraphics[scale=0.4]{fig/wass_error_himmelblau.png}\label{fig:himdim}}
+\subfigure[Gene expression (D4)]{\includegraphics[scale=0.17]{fig/accuracy_genes.png}\label{fig:genedim}}
+\vspace{-8pt}
+\caption{Held-out goodness of fit (lower is better), as measured by Wasserstein distance. `Oracle' represents the error from Monte Carlo sampling for the true gradient flow. The RNN parametrization performs best across a wide range of tasks.}
+\vspace{-8pt}
+\end{figure*}
+
+
+
+\subsection{Optimization}
+
+Optimizing the full objective function (Eq. \ref{eq:objective}) directly via backpropagation across time is slow and sensitive to the initialization.
+Exploiting the connection between RNNs and the diffusion, we can pre-train the model by optimizing the regularizer alone: $\sum_{j=1}^{m_n} \Psi(x_j)/\sigma^2$ under the constraint that $\int \exp(-\Psi(x)/\sigma^2)dx = 1$. We solve this optimization problem with contrastive divergence \citep{hinton2002training} using the first-order Euler scheme in Eq. \ref{eq:simul} to generate negative samples.
+
+After this initialization, we perform backpropagation over time on our objective function, with $\rho_{\Psi}$ approximated via Monte Carlo samples using Eq. \ref{eq:simul} and the Wasserstein error approximated using Sinkhorn distances. These stochastic gradients are then used in Adagrad to optimize $\Psi$\citep{duchi2011adaptive}. We implement the entire method in Theano, and code is available at \url{https://github.com/thashim/population-diffusions}.
+
+
+\section{Results}
+
+
+\begin{figure*}[ht!]
+\vspace{-5pt}
+\subfigure[D0 and D7 distributions of Oct4 (y-axis) and Krt8 (x-axis)]{\includegraphics[scale=0.4]{fig/Barrier_Expr_scatter.png}\label{fig:datain}}
+\subfigure[Learned differentiation dynamics]{\includegraphics[scale=0.4]{fig/d0_d7_fitted_flow.png}\label{fig:dynamics}}
+\subfigure[Distributions of true Krt8 expression]{\includegraphics[scale=0.4]{fig/violinplot.png}\label{fig:krt8}}
+\vspace{-16pt}
+\caption{Observed data and learned model for single-cell RNA-seq data}
+\vspace{-8pt}
+\end{figure*}
+
+
+
+We now demonstrate the effectiveness of both the pre-training and RNN parametrization.
+\footnote{Step-size is selected by grid search (see section \ref{sec:params} for other parameter settings). $\sigma$ is assumed known in the simulations, and fixed to the observed marginal variance for the RNA-seq data.}
+\subsection{Effectiveness of the stationary pre-training}
+The stationary pre-training via contrastive divergence results in substantially better training log-likelihoods in less than a third of the total time of the randomly initialized case (Fig. \ref{fig:stationary}) for the Himmelblau flow (Fig. \ref{fig:problem}). We control for initialization and runtime of both procedures by ensuring that the initial parameters of the pre-training matches that of the random initialization, and applying shared code for both pre-training and backpropagation.
+
+
+\subsection{Learning high dimensional flows}
+
+One of the primary advantages of using recurrent networks and sums-of-ramps as a potential is that they behave well in high-dimensional estimation problems. We compare our RNN model against a linear $\Psi(x)$, the Orstein-Uhlenbeck process (quadratic $\Psi(x)$), and a local sum-of-gaussian potentials parametrization for $\Psi(x)$ (details in Sec. \ref{sec:altmethods}).
+
+In the first task (Fig. \ref{fig:quaddim}), we have a population evolution in $\mathbb{R}^d$ for $d\in \{2,10,50\}$ according to a unit quadratic potential $\Psi(x) = |x|_2^2$. The initial measurement is 500 samples drawn from a normal distribution with $1/2$ scale centered at $(5,0,0\hdots 0)$, and the final time measurement is 500 samples at $t=1$ with $\sigma=1.5$. This tests whether our model can recover a simple, high-dimensional potential function. In this case, the simple dynamics mean that the parametric models (Orstein-Uhlenbeck and Linear flows) perform quite well. The RNN parametrization is competitive with these models in as the dimensionality increases, and substantially outperforms the local model (Fig. \ref{fig:quaddim}).
+
+In the second task (Fig. \ref{fig:himdim}), we consider a population over $d\in \{2,10,50\}$ with two of the dimensions evolving according to the Styblinski flow ($\Psi(x) = ||3x^3-32x+5||_2^2$), and the other dimensions set to zero. This tests whether our model can identify a complex low-dimensional potential embedded in a high-dimensional space. Example outputs in Fig. \ref{fig:goodness} and \ref{fig:goodness_2} demonstrate that our RNN model can model the multi-modal dynamics embedded within a high-dimensional space. The quantitative error in Fig. \ref{fig:himdim} shows that the local and RNN methods perform best at low (2-10) dimensions, but the local method rapidly degenerates in higher dimensions. In both cases, our RNN approach produces substantially lower Wasserstein loss compared both parametric and local approaches.
+
+\subsection{Analysis of Single-cell RNA-seq}
+
+In \citep{klein2015droplet} an initially stable embryonic stem cell population (termed `D0' for day 0) begins to differentiate after removal of LIF (leukemia inhibitory factor) and single-cell RNA-seq measurements are made at two, four, and seven days after LIF removal. At each time point, the expression of 24175 genes for several hundred cells (933 cells at D0, 303 at D2, 683 at D4, and 798 at D7) are measured. We apply standard normalization procedures \citep{hicks2015widespread} to correct for batch effects, and impute missing expression levels using nonnegative matrix factorization. Our task is to predict the gene expression at D4 given only the D0 and D7 expression values.
+
+Fitting our RNN model across the top five and ten most differential genes (as determined by the Wassertein distance between D0 and D7 distributions for each gene), our RNN method performs best compared to baselines (Fig\ref{fig:genedim}), and is the only one to perform better than the trivial baseline of predicting the D4 gene expression using D7 data. We find that ten genes is the limit for accurate prediction with a few hundred cells; in higher dimensions the RNN begins to behave much like the linear model. As the number of captured cells in single-cell RNA-seq grows, our RNN model will be capable of modeling more complex multivariate potentials.
+
+We now focus on whether our model captures the qualitative dynamics of differentiation for the two main differentiation markers studied in \citep{klein2015droplet}: Keratin 8 (Krt8) which is an epithelial marker and Oct 4 (Pou5f1) which is a embryonic marker. Krt8 in particular shows two sub-populations at day 4 (Fig. \ref{fig:krt8}) suggesting that epigenetic landscape may have multiple minima.
+
+Fitting our RNN on this two dimensional problem shown in Fig. \ref{fig:datain} we obtain a potential function with a single minimum (Fig. \ref{fig:dynamics}) demonstrating that differentiation is concentrated around a linear path connecting the D0 and D7 distributions. Surprisingly, this simple unimodal potential predicts a bimodal distribution for the D4 Krt8 distribution shown in Fig. \ref{fig:krt8d4} despite the lack of bimodality in either the input data (Fig \ref{fig:datain}) or the potential (Fig \ref{fig:dynamics}). \footnote{Similar qualitative results hold for D4 Krt8 expression under five and ten-dimensional versions (Supp. Fig. \ref{fig:5dkrt}, \ref{fig:5dmarg}, \ref{fig:10dmarg}, \ref{fig:10dcor}).}
+
+\begin{figure}
+\vspace{-5pt}
+\centering
+\includegraphics[scale=0.30]{fig/krt8d4.png}
+\vspace{-7pt}
+\caption{D4 predictions of Krt8 recapitulate bimodality}
+\label{fig:krt8d4}
+\vspace{-15pt}
+\end{figure}
+
+The bimodality arises from modeling the quantitative dynamics from D0 to D7, and provides evidence that even with as few as two time measurments, complex dynamics can be recovered from population level observations.
+
+\section{Discussion}
+
+Our work establishes the problem of recovering an underlying potential function using samples from the population distribution. Using a variational interpretation of diffusions, we derive natural and scalable losses and regularizers. Finally, we demonstrate through multiple synthetic datasets and a real single cell RNA-seq dataset that our model performs well in a high-dimensional setting.
+
+\section*{Acknowledgements}
+We would like to thank the reviewers for their helpful comments in revising the paper.
+
+This research was funded by the National Institute of Health under grants to D.G. and T.J. 1U01HG007037-01 and 1R01HG008363-01.
+
+\bibliography{ICML}
+\bibliographystyle{icml2016}
+\newpage
+\onecolumn
+\setcounter{section}{18}
+\renewcommand\thesection{\Alph{section}}
+\setcounter{figure}{0}
+\renewcommand\thefigure{\thesection.\arabic{figure}}
+
+
+\section{Supplemental results}
+
+\subsection{Hypothesis test proof}\label{sec:hypo}
+\begin{cor}[Hypothesis test for $\Psi$]
+Let $\Psi_0$ and $\Psi_1$ be candidate potentials such that given $\rho_0(0,x)=\rho_1(0,x)$ and
+\[\frac{\partial \rho_i}{\partial t} = \text{div}(\nabla \Psi_i(x) \rho_i(t,x)) + \sigma^2\nabla^2 \rho_i(t,x)\]
+fulfill $\rho_0(t,x) = \rho_1(t,x)$. Define $\rho_i(t_3,x)$ where $t_3 \sim T$ is a draw from $T$ defined as a random variable absolutely continuous with respect to the Lebesgue measure, then either
+\[P(\rho_1(t_3,x) = \rho_0(t_3,x))=1\]
+if $\forall x$, $\Psi_1(x)=\Psi_0(x)$, or
+\[P(\rho_1(t_3,x) = \rho_0(t_3,x))=0\]
+otherwise.
+\end{cor}
+\begin{proof}
+By theorem \ref{thm:uniqueop}, we know that if both $\frac{\partial\rho_1}{\partial t} = \frac{\partial\rho_0}{\partial t}$ and $\rho_1(t,x) = \rho_0(t,x)$ for any $t$, then $\Psi_1(x)=\Psi_0(x)$. Therefore if $\Psi_1(x) \neq \Psi_0(x)$, any $t$ such that $\rho_1(t,x)=\rho_0(t,x)$ must have distinct time derivatives.
+
+Now by Bolzano Weierstrass, if $\rho_1(t,x)=\rho_0(t,x)$ an infinite times over any finite time interval $[0,T]$, then there must be some accumulation point such that $\rho_1(t,x)=\rho_0(t,x)$ has a convergent subsequence. By differentiability of $\rho$ with respect to time, this implies $\frac{\partial\rho_0}{\partial t}$ at some $\rho_1(t,x)=\rho_0(t,x)$. Therefore, if $\Psi_1(x) \neq \Psi_0(x)$ there can only be a finite number of times such that $\rho_1(t,x) = \rho_0(t,x)$. This has measure zero over with respect to the Lebesgue measure, thus any random stopping time $t_3$ implies
+\[P(\rho_1(t_3,x) = \rho_0(t_3,x))=0.\]
+The other direction occurs by uniqueness of the solution to the Fokker Planck equation.
+
+
+\end{proof}
+
+\subsection{Boundary conditions for identifiability}
+\label{sec:uniqueop2}
+
+
+We prove the non-compact boundary condition, which replaces the boundary with some sequence of compact sets such that the probability of leaving the set limits to zero.
+
+\begin{thm}[Uniqueness of Fokker-Planck like operators]\label{thm:uniqueop2}
+Let $\Psi(x)$ be a $C^1$ solution to the following elliptic PDE:
+\begin{equation}
+\label{eq:parab2}
+f(x) = \nabla^2 \Psi(x) \tau(x) + \nabla \Psi(x) \nabla \tau(x) + \sigma^2 \nabla^2 \tau(x)
+\end{equation}
+subject to the constraint $\int \exp(-\Psi(x)/\sigma^2) dx = 1$, $\int \tau(x)dx < \infty$.
+
+Equation \ref{eq:parab2} is fulfilled in the short-time case with, $f=\frac{\partial \rho}{\partial t}$, $\tau = \rho$ and in the time-integral case, $f(x)=\rho(t_0,x)-\rho(t_n,x)$ and $\tau(x) = \int_0^T \rho(t,x)dt$.
+
+In both cases, assume that the underlying Fokker-Planck boundary condition allows us to construct a sequence of compact sets $\Omega_n$ such that $\lim_{n\to\infty} \int_{x\in \Omega_n} \tau(x)dx = \int_{x\in\mathbb{R}^d} \tau(x)dx < \infty$ and $\lim_{n\to \infty} \int_{x\in \omega} f(x)\to 0$.
+
+ Then $\Psi(x)$ is unique up to sets of measure zero of $\tau(x)$.
+\end{thm}
+\begin{proof}
+Consider any $\Psi_1(x)$ and $\Psi_2(x)$, then by linearity of the PDE $\Psi'(x)=\Psi_1(x) - \Psi_2(x)$ must be a solution to the homogeneous elliptic PDE
+\[0 = \text{div}(\nabla \Psi'(x) \tau(x))=\nabla^2 \Psi'(x) \tau(x) + \nabla \Psi'(x) \nabla \tau(x)\]
+
+Construct $R_{\epsilon,n} = \{x: x\in \Omega_n, \Psi'(x)\leq \epsilon\}$, which is the intersection of the level set of $\Psi'$ with $\Omega_n$.
+
+Expanding the limit boundary constraint on $f$ and taking the difference we obtain:
+\[\lim_{n\to \infty} \int_{x\in \partial \Omega_n} \langle \nabla \Psi'(x)\tau(x),n_x\rangle dx =0.\]
+
+Analogously to the reflecting boundary condition, define $\partial R_{\epsilon,n}^\circ$ as the boundary of the sublevel set and $\partial \Omega_{\epsilon,n}^\circ$ as the boundary of $\Omega_n$ such that the union of the two sets forms the boundary of $R_{\epsilon,n}$.
+
+Applying the divergence theorem over the decomposition of the boundary analogously to the other boundary condition:
+\begin{align}\label{eq:div1}
+&\lim_{n\to\infty}\int_{x\in R_{\epsilon,n}} \text{div}(\nabla \Psi'(x)\tau(x)) dx\\
+\label{eq:div2}
+&= \lim_{n\to \infty}\int_{x\in \partial \Omega_n^\circ} \langle \nabla \Psi'(x) \tau(x) , n_x \rangle dx \\
+&+ \lim_{n\to\infty}\int_{x\in \partial R_{\epsilon,n}^\circ} |\nabla\Psi'(x)|_2\tau(x) dx = 0 .
+\end{align}
+which implies via our boundary constraint
+\[\lim_{n\to\infty}\int_{x\in \partial R_{\epsilon,n}^\circ} |\nabla\Psi'(x)|_2\tau(x) dx = 0.\]
+This limit occurs uniformly in $\epsilon$, since the first line of Eq \ref{eq:div1} is exactly zero and Eq \ref{eq:div2} is uniformly bounded as
+\begin{align*}
+&\lim_{n\to \infty}\int_{x\in \partial \Omega_n^\circ} \langle \nabla \Psi'(x) \tau(x) , n_x \rangle dx \\
+&\leq \lim_{n\to \infty}\int_{x\in \partial \Omega_n} \langle \nabla \Psi'(x) \tau(x) , n_x \rangle dx.
+\end{align*}
+
+
+Now assume that there exists some compact set $S$ of nonzero measure such that for all $x\in S$, $|\nabla \Psi(x)| \neq 0$. Since $\Psi$ is continuous the extreme value theorem implies the existence of some $\epsilon_{\text{min}} = \min_{x\in S}\Psi(x)$ and $\epsilon_{\text{max}}=\max_{x\in S}\Psi(x)$. Using the fact that any $x$ with $|\nabla\Psi'(x)|\neq 0$ must be a part of $\partial R_{\epsilon,n}^\circ$ for sufficient large $n$ and uniformity of our limit with respect to $\epsilon$ we obtain:
+\begin{align*}
+&\lim_{n\to\infty} \int_{x\in S} |\nabla \Psi'(x)|_2 \tau(x)dx\\
+&=\lim_{n\to\infty} \int_{\epsilon_{\text{min}}}^{\epsilon_{\text{max}}} \int_{x\in \{\partial R_{\epsilon,n}^\circ \cap S\}} ||\nabla \Psi'(x)||_2 \tau(x) dx d\epsilon\\
+&\leq \lim_{n \to \infty} \int_{\epsilon_{\text{min}}}^{\epsilon_{\text{max}}} \int_{x\in \partial R_{\epsilon,n}^\circ} ||\nabla \Psi'(x)||_2 \tau(x) dx d\epsilon =0.
+\end{align*}
+Which is a contradiction, as this implies $\lim_{n \to \infty} |\nabla \Psi(x)| =0$ from the fact that $\tau(x)$ has a lower bound strictly greater than zero over $S$.
+
+Equicontinuity of $\nabla\Psi'(x)$ then implies $|\nabla \Psi'(x)|=0$ for all $x$, and  therefore
+\[|\nabla \Psi'(x)| = |\nabla \Psi_1(x) - \nabla \Psi_2(x)| = 0.\]
+Combined with the normalization constraint, $\int \exp(-\Psi(x)/\sigma^2) dx = 1$, this implies $\Psi_1(x) = \Psi_2(x)$.
+\end{proof}
+
+\subsection{Details on parameters and methods} \label{sec:params}
+The following are the `free' hyperparameters of the model:
+\begin{itemize}
+\item $K$: The number of hidden layers (200 for simulated data, 500 for RNA-seq data)
+\item $\Delta t$: simulation timestep (0.01 for simulations, 0.1 for RNA-seq)
+\item $\tau$: regularization constant (0.7 for all data)
+\item $\epsilon$: step size of adagrad (Grid searched from starting with 0.1 for 10 steps with decaying powers of 2)
+\item $\gamma$: adagrad squared gradient decay rate (0.01, all experiments)
+\item NS: number of samples to draw from simulations (Fixed to be the same as the number of points at the first time point)
+\item burnin: number of steps of the first-order Euler scheme to burn-in for contrastive divergence (set to 50)
+\end{itemize}
+For initializing the contrastive divergence, $W$ is set to be i.i.d unit Gaussians, $b$ to draws from the $[-1,1]$ uniform, and $g$ to zero.
+
+\subsection{Alternative methods} \label{sec:altmethods}
+We fit the following baseline models:
+\begin{itemize}
+\item \textbf{Orstein-Uhlenbeck:} Quadratic potential with one parameter $\mu$, $\Psi(x) = (x-\mu)^2$
+\item \textbf{Linear:} Linear potential with one parameter $w$, $\Psi(x) = xw^T$.
+\item \textbf{Local:} Sum of Gaussian potentials with three parameters $\mu$, $g$ and $b$, $\Psi(x) = g\exp(-(x-\mu)^2/b^2)$.
+\end{itemize}
+
+
+\subsection{High-dim gene expression}
+
+Applying our RNN model to the top 5 or 10 differentiating genes as measured by the Wasserstein distance between the marginal day 0 and 7 distributions results in qualitatively similar results. In order to fit the higher-complexity multivariate model, we modified a few hyperparameters ($K=2000$, initialization of $b$ as $b_i = ||w_i x_i||_2^2$, increasing NS to 1000, $\sigma=\sqrt{2}$ and using continuous contrastive divergence) and included all (non-heldout) data for pre-training. The parameter changes result in producing a similar goodness-of-fit to the higher dimensional versions of the problem with only a few hundred points.
+
+For example, the D4 nonstationary dynamics of Krt8 are re-capitulated
+\begin{figure}[h]
+\centering
+\includegraphics[scale=0.5]{fig/krt8-5dim.png}
+\caption{5-gene model prediction of Krt8 also reproduces the underlying bimodality of the data}
+\label{fig:5dkrt}
+\end{figure}
+
+Plotting the predicted marginal distribution for all 5 genes, we find that the RNN based model substantially outperforms other, parametric approaches to the same problem:
+\begin{figure}[h]
+\includegraphics[scale=0.5]{fig/krt-marginals-2.png}
+\caption{Predicted marginal distributions of the top 5 differentiating genes at day 4}
+\label{fig:5dmarg}
+\end{figure}
+
+This same trend holds as we increase the number of genes from 5 to 10 where the RNN performs best compared to alternatives.
+\begin{figure}[h]
+\includegraphics[scale=0.5]{fig/krt-marginals-10d-2.png}
+\caption{Predicted marginal distributions of the top 10 differentiating genes at day 4}
+\label{fig:10dmarg}
+\end{figure}
+We find that as we increase the dimensionality, the learned dynamics begin to become unimodal, as all models struggle to identify the true dynamics from sparse, high-dimensional data.
+
+Even in this setting where we have a few hundred examples in 10 dimensions, we can still effectively identify correlations and other relationships between genes at this non-equilibrium state.
+\begin{figure}[h]
+\includegraphics[scale=0.5]{fig/krt-cross-10d.png}
+\caption{Predicted against actual pairwise gene expression distributions at the D4 timepoint. The RNN models the correlational structure of the true dynamics.}
+\label{fig:10dcor}
+\end{figure}
+
+\end{document}
+
+
+% This document was modified from the file originally made available by
+% Pat Langley and Andrea Danyluk for ICML-2K. This version was
+% created by Lise Getoor and Tobias Scheffer, it was slightly modified
+% from the 2010 version by Thorsten Joachims & Johannes Fuernkranz,
+% slightly modified from the 2009 version by Kiri Wagstaff and
+% Sam Roweis's 2008 version, which is slightly modified from
+% Prasad Tadepalli's 2007 version which is a lightly
+% changed version of the previous year's version by Andrew Moore,
+% which was in turn edited from those of Kristian Kersting and
+% Codrina Lauth. Alex Smola contributed to the algorithmic style files.
